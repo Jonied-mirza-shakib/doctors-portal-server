@@ -7,6 +7,7 @@ require('dotenv').config()
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const sgTransport = require('nodemailer-sendgrid-transport');
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
 app.use(cors())
 app.use(express.json())
 
@@ -72,6 +73,7 @@ async function run() {
         const bookingCollection = client.db('doctors_portal').collection('booking');
         const userCollection = client.db('doctors_portal').collection('users');
         const doctorsCollection = client.db('doctors_portal').collection('doctors');
+        const paymentCollection = client.db('doctors_portal').collection('payment');
 
         const verifyAdmin = async (req, res, next) => {
             const requester = req.decoded.email;
@@ -120,6 +122,34 @@ async function run() {
                 return res.status(403).send({ message: 'Forbidden access' })
             }
 
+        })
+
+        app.patch('/booking/:id', verifyJTW, async (req, res) => {
+            const id = req.params.id;
+            const payment = req.body;
+            const filter = { _id: ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    paid: true,
+                    transectionId: payment.transectionId
+                },
+            };
+            const result = await paymentCollection.insertOne(payment)
+            const updatedBooking = await bookingCollection.updateOne(filter, updateDoc)
+            res.send(updateDoc)
+        })
+
+        app.post('/create-payment-intent', verifyJTW, async (req, res) => {
+            const service = req.body;
+            console.log(service, 'service')
+            const price = service.price;
+            const amount = price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card']
+            })
+            res.send({ clientSecret: paymentIntent.client_secret })
         })
 
         app.get('/booking/:id', verifyJTW, async (req, res) => {
